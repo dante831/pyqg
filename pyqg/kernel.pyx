@@ -60,6 +60,7 @@ cdef class PseudoSpectralKernel:
     cdef DTYPE_real_t [:, :, :] dv
     cdef DTYPE_com_t [:, :, :] duh
     cdef DTYPE_com_t [:, :, :] dvh
+    cdef DTYPE_com_t [:, :, :] dpsih
     # subgrid potential vorticity parameterizations
     cdef DTYPE_real_t [:, :, :] dq
     cdef DTYPE_com_t [:, :, :] dqh
@@ -77,6 +78,7 @@ cdef class PseudoSpectralKernel:
     # the variables needed for inversion and advection
     # store a as complex so we don't have to typecast in inversion
     cdef DTYPE_com_t [:, :, :, :] a
+    cdef DTYPE_com_t [:, :] S
     cdef readonly DTYPE_com_t [:] _ik
     cdef readonly DTYPE_com_t [:] _il
     cdef public DTYPE_real_t [:,:] _k2l2
@@ -125,6 +127,7 @@ cdef class PseudoSpectralKernel:
         self.nl = ny
         self.nk = nx/2 + 1
         self.a = np.zeros((self.nz, self.nz, self.nl, self.nk), DTYPE_com)
+        self.S = np.zeros((self.nz, self.nz), DTYPE_com)
         self.kk = np.zeros((self.nk), DTYPE_real)
         self._ik = np.zeros((self.nk), DTYPE_com)
         self.ll = np.zeros((self.nl), DTYPE_real)
@@ -166,10 +169,12 @@ cdef class PseudoSpectralKernel:
             dv = self._empty_real()
             duh = self._empty_com()
             dvh = self._empty_com()
+            dpsih = self._empty_com()
             self.du = du
             self.dv = dv
             self.duh = duh
             self.dvh = dvh
+            self.dpsih = dpsih
 
         if has_q_param:
             dq = self._empty_real()
@@ -409,6 +414,7 @@ cdef class PseudoSpectralKernel:
         # convert to spectral space
         self.fft_du_to_duh()
         self.fft_dv_to_dvh()
+        # vorticity part
         for k in range(self.nz):
             for j in prange(self.nl, nogil=True, schedule='static',
                       chunksize=self.chunksize,
@@ -419,6 +425,28 @@ cdef class PseudoSpectralKernel:
                                         (-self._il[j] * self.duh[k, j, i] +
                                         +self._ik[i] * self.dvh[k, j, i] )
                                         )
+
+        # baroclinic part
+        if self.nz > 1:
+            for k in range(self.nz):
+                for j in prange(self.nl, nogil=True, schedule='static',
+                          chunksize=self.chunksize,
+                          num_threads=self.num_threads):
+                    for i in range(self.nk):
+                        if not (i == 0 and j == 0):
+                            self.dpsih[k,j,i] = (
+                                                -self._il[j] * self.duh[k, j, i] + 
+                                                 self._ik[i] * self.dvh[k, j, i]
+                                                ) / (-self._k2l2[j, i])
+            for k2 in range(self.nz):
+                for k1 in range(self.nz):
+                    for j in prange(self.nl, nogil=True, schedule='static',
+                              chunksize=self.chunksize,
+                              num_threads=self.num_threads):
+                        for i in range(self.nk):
+                            self.dqhdt[k2,j,i] = (
+                                    self.dqhdt[k2,j,i] + self.S[k2,k1] * self.dpsih[k1,j,i]
+                                    )
         return
 
     def _do_q_subgrid_parameterization(self):
@@ -561,6 +589,12 @@ cdef class PseudoSpectralKernel:
         def __set__(self, np.ndarray[DTYPE_real_t, ndim=4] b):
             cdef  DTYPE_com_t [:, :, :, :] b_view = b.astype(DTYPE_com)
             self.a[:] = b_view
+    property S:
+        def __get__(self):
+            return np.asarray(self.S)
+        def __set__(self, np.ndarray[DTYPE_real_t, ndim=2] b):
+            cdef  DTYPE_com_t [:, :] b_view = b.astype(DTYPE_com)
+            self.S[:] = b_view
     property Ubg:
         def __get__(self):
             return np.asarray(self.Ubg)
@@ -635,6 +669,9 @@ cdef class PseudoSpectralKernel:
     property dvh:
         def __get__(self):
             return np.asarray(self.dvh)
+    property dpsih:
+        def __get__(self):
+            return np.asarray(self.dpsih)
 
 
 # general purpose timestepping routines

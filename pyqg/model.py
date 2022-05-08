@@ -724,7 +724,15 @@ class Model(PseudoSpectralKernel):
         if self.uv_parameterization is not None:
             ik = np.asarray(self._ik).reshape((1, -1)).repeat(self.wv2.shape[0], axis=0)
             il = np.asarray(self._il).reshape((-1, 1)).repeat(self.wv2.shape[-1], axis=-1)
-            dqh += -il * self.duh + ik * self.dvh
+            
+            # vorticity only
+            #dqh += -il * self.duh + ik * self.dvh
+            
+            # new version
+            wv2 = self.wv2; wv2[0, 0] = float('inf')
+            dqh += (-il * self.duh + ik * self.dvh)
+            dzh = -il * self.duh + ik * self.dvh
+            dqh = dzh + np.einsum('ij, jk... -> ik...', self.S, dzh / (-wv2))
         if self.q_parameterization is not None:
             dqh += self.dqh
         return dqh

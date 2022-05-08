@@ -139,12 +139,6 @@ class QGModel(model.Model):
         self.del1 = self.delta/(self.delta+1.)
         self.del2 = (self.delta+1.)**-1
 
-    @property
-    def S(self):
-        # Define stretching matrix to be used in diagnostics
-        return np.array([[-self.F1, self.F1],
-                         [self.F2, -self.F2]]).astype(np.float64)
-
     def _initialize_inversion_matrix(self):
 
         # The matrix multiplication will look like this
@@ -161,6 +155,8 @@ class QGModel(model.Model):
         a[1,1] = -(self.wv2 + self.F1)*det_inv
 
         self.a = np.ma.masked_invalid(a).filled(0.)
+        self.S = np.array([[-self.F1, self.F1],
+                           [self.F2, -self.F2]]).astype(np.float64)
 
     def _initialize_forcing(self):
         pass
