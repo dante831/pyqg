@@ -728,11 +728,9 @@ class Model(PseudoSpectralKernel):
             # vorticity only
             #dqh += -il * self.duh + ik * self.dvh
             
-            # new version
-            wv2 = self.wv2; wv2[0, 0] = float('inf')
-            dqh += (-il * self.duh + ik * self.dvh)
+            # vorticity + baroclinic part
             dzh = -il * self.duh + ik * self.dvh
-            dqh = dzh + np.einsum('ij, jk... -> ik...', self.S, dzh / (-wv2))
+            dqh += dzh + np.einsum('ij, jk... -> ik...', self.S, dzh * (-wv2i))
         if self.q_parameterization is not None:
             dqh += self.dqh
         return dqh
